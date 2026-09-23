@@ -78,9 +78,11 @@ export const INCOMING_STREAM_TEMPLATES: Array<Omit<FeedbackLog, 'id' | 'date' | 
 
 let streamCounter = 9000;
 
-export function generateNextStreamLog(): { log: FeedbackLog; alert?: RealtimeAnomalyAlert } {
+export function generateNextStreamLog(overrideStoreId?: string): { log: FeedbackLog; alert?: RealtimeAnomalyAlert } {
   streamCounter++;
-  const template = INCOMING_STREAM_TEMPLATES[Math.floor(Math.random() * INCOMING_STREAM_TEMPLATES.length)];
+  const template = overrideStoreId
+    ? INCOMING_STREAM_TEMPLATES.find((t) => t.storeId === overrideStoreId) || INCOMING_STREAM_TEMPLATES[0]
+    : INCOMING_STREAM_TEMPLATES[Math.floor(Math.random() * INCOMING_STREAM_TEMPLATES.length)];
   const now = new Date();
   const timeStr = now.toTimeString().slice(0, 5);
   const dateStr = now.toISOString().slice(0, 10);
@@ -89,6 +91,7 @@ export function generateNextStreamLog(): { log: FeedbackLog; alert?: RealtimeAno
   const log: FeedbackLog = {
     ...template,
     id,
+    storeId: overrideStoreId || template.storeId,
     date: dateStr,
     time: timeStr,
   };

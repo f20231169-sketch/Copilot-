@@ -57,6 +57,23 @@ export interface ChatMessage {
   };
   groundingSources?: GroundingSource[];
   searchQueries?: string[];
+  modelUsed?: string;
+  roleUsed?: string;
+}
+
+export type GeminiModelId = 'gemini-3.1-pro-preview' | 'gemini-3.5-flash' | 'gemini-3.1-flash-lite';
+export type GeminiRole = 'operations_lead' | 'product_manager' | 'executive_vp';
+
+export interface SavedAuditItem {
+  id: string;
+  title: string;
+  datasetName: string;
+  voicesCount: number;
+  csatAverage: number;
+  topCluster: string;
+  topStore: string;
+  notes?: string;
+  createdAt?: any;
 }
 
 export interface AnalysisHistoryItem {

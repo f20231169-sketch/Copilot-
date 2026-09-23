@@ -19,19 +19,36 @@ import {
   Send,
   Globe,
   ExternalLink,
+  Cpu,
+  UserCheck,
+  RotateCcw,
+  Zap,
+  Layers,
 } from 'lucide-react';
-import { ChatMessage } from '../types';
+import { ChatMessage, GeminiModelId, GeminiRole } from '../types';
 import { parseCSVData } from '../utils/csvParser';
 
 interface IngressChatProps {
   messages: ChatMessage[];
-  onSendMessage: (text: string, attachedFile?: { name: string; content: string; rowCount: number }) => void;
+  onSendMessage: (
+    text: string,
+    attachedFile?: { name: string; content: string; rowCount: number },
+    model?: GeminiModelId,
+    role?: GeminiRole
+  ) => void;
   onSelectPrompt: (promptText: string) => void;
   onGenerateDashboard: () => void;
   onLoadSampleDataset: () => void;
   onAttachFileParsed: (fileName: string, content: string) => void;
+  onClearConversation: () => void;
   currentDatasetName: string;
   totalLogsCount: number;
+  selectedModel: GeminiModelId;
+  onChangeModel: (model: GeminiModelId) => void;
+  selectedRole: GeminiRole;
+  onChangeRole: (role: GeminiRole) => void;
+  isAiResponding: boolean;
+  isAuthenticated: boolean;
 }
 
 export const IngressChat: React.FC<IngressChatProps> = ({
@@ -41,8 +58,15 @@ export const IngressChat: React.FC<IngressChatProps> = ({
   onGenerateDashboard,
   onLoadSampleDataset,
   onAttachFileParsed,
+  onClearConversation,
   currentDatasetName,
   totalLogsCount,
+  selectedModel,
+  onChangeModel,
+  selectedRole,
+  onChangeRole,
+  isAiResponding,
+  isAuthenticated,
 }) => {
   const [inputText, setInputText] = useState('');
   const [attachedFile, setAttachedFile] = useState<{ name: string; content: string; rowCount: number } | null>(null);
@@ -65,10 +89,46 @@ export const IngressChat: React.FC<IngressChatProps> = ({
     'Benchmark our 15-minute quick commerce delivery SLAs against industry standards.',
   ];
 
-  // Auto-scroll chat
+  const roleLabels: Record<GeminiRole, { title: string; subtitle: string; icon: string }> = {
+    operations_lead: {
+      title: 'Operations Lead',
+      subtitle: 'Cold chain, dark store staging, dwell time, pick/pack defects',
+      icon: '🏬',
+    },
+    product_manager: {
+      title: 'Product Manager',
+      subtitle: 'Checkout UX, 504 timeouts, support bot refund disputes, LTV',
+      icon: '📱',
+    },
+    executive_vp: {
+      title: 'Executive VP / COO',
+      subtitle: 'High-level financial summaries, revenue bleed, store benchmarking',
+      icon: '📊',
+    },
+  };
+
+  const modelLabels: Record<GeminiModelId, { name: string; badge: string; desc: string }> = {
+    'gemini-3.1-pro-preview': {
+      name: 'gemini-3.1-pro-preview',
+      badge: 'Complex Tasks',
+      desc: 'Deep multi-store root cause & systemic correlation',
+    },
+    'gemini-3.5-flash': {
+      name: 'gemini-3.5-flash',
+      badge: 'General Tasks',
+      desc: 'Balanced triage & live Google Search grounding',
+    },
+    'gemini-3.1-flash-lite': {
+      name: 'gemini-3.1-flash-lite',
+      badge: 'Fast Tasks',
+      desc: 'Rapid categorization & sub-second answering',
+    },
+  };
+
+  // Auto-scroll chat to latest message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, isAiResponding]);
 
   // Clean up recording timer on unmount
   useEffect(() => {
@@ -79,7 +139,6 @@ export const IngressChat: React.FC<IngressChatProps> = ({
     };
   }, []);
 
-  // Handle hidden file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -102,7 +161,6 @@ export const IngressChat: React.FC<IngressChatProps> = ({
     reader.readAsText(file);
   };
 
-  // Handle drag and drop over prompt bar
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDraggingOver(true);
@@ -122,7 +180,6 @@ export const IngressChat: React.FC<IngressChatProps> = ({
     }
   };
 
-  // Handle paste CSV directly into textarea
   const handlePaste = (e: React.ClipboardEvent) => {
     const text = e.clipboardData.getData('text');
     if (text.includes('\n') && (text.includes(',') || text.includes('\t'))) {
@@ -147,12 +204,12 @@ export const IngressChat: React.FC<IngressChatProps> = ({
     }
   };
 
-  // Start microphone recording
+  // Start microphone recording (gemini-3.5-transcribe)
   const startRecording = async () => {
     setTranscribeError(null);
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error('Microphone audio recording is not supported in this browser.');
+        throw new Error('Microphone recording is not supported in this browser.');
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -174,10 +231,7 @@ export const IngressChat: React.FC<IngressChatProps> = ({
 
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-        // Stop all audio tracks to release microphone hardware
         stream.getTracks().forEach((track) => track.stop());
-
-        // Call backend to transcribe with gemini-3.5-transcribe
         await transcribeAudioBlob(audioBlob);
       };
 
@@ -198,7 +252,6 @@ export const IngressChat: React.FC<IngressChatProps> = ({
     }
   };
 
-  // Stop microphone recording and trigger transcription
   const stopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
@@ -210,13 +263,11 @@ export const IngressChat: React.FC<IngressChatProps> = ({
     }
   };
 
-  // Transcribe recorded audio with server-side gemini-3.5-transcribe
   const transcribeAudioBlob = async (blob: Blob) => {
     setIsTranscribing(true);
     setTranscribeError(null);
 
     try {
-      // Read blob as base64 string
       const reader = new FileReader();
       const base64Promise = new Promise<string>((resolve, reject) => {
         reader.onloadend = () => {
@@ -263,25 +314,91 @@ export const IngressChat: React.FC<IngressChatProps> = ({
 
     const textToSend =
       inputText.trim() || 'Analyze attached customer dataset for critical dark store friction points.';
-    onSendMessage(textToSend, attachedFile || undefined);
+    onSendMessage(textToSend, attachedFile || undefined, selectedModel, selectedRole);
     setInputText('');
   };
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#FCF9F2] overflow-hidden font-sans">
+      {/* Top Multi-Turn Chat Controls Bar: Role Persona + Model Selection */}
+      <div className="border-b border-[#E5E0D5] bg-[#FFFFFF] px-6 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs shadow-2xs z-10">
+        {/* Role Persona Switcher */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="font-mono text-[10px] uppercase tracking-wider text-[#938E85] mr-1">
+            System Persona:
+          </span>
+          {(['operations_lead', 'product_manager', 'executive_vp'] as GeminiRole[]).map((r) => {
+            const isSelected = selectedRole === r;
+            return (
+              <button
+                key={r}
+                type="button"
+                onClick={() => onChangeRole(r)}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-all text-xs flex items-center gap-1.5 ${
+                  isSelected
+                    ? 'bg-[#181716] text-[#FCF9F2] shadow-2xs font-semibold'
+                    : 'bg-[#F6F3EC] text-[#78736B] hover:text-[#181716] hover:bg-[#E5E0D5]/60'
+                }`}
+                title={roleLabels[r].subtitle}
+              >
+                <span>{roleLabels[r].icon}</span>
+                <span>{roleLabels[r].title}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Model Selector Pill (gemini-3.1-pro-preview, gemini-3.5-flash, gemini-3.1-flash-lite) */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1 bg-[#F6F3EC] p-1 rounded-xl border border-[#E5E0D5]">
+            {(['gemini-3.1-pro-preview', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'] as GeminiModelId[]).map((m) => {
+              const isSelected = selectedModel === m;
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => onChangeModel(m)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-mono transition-all flex items-center gap-1 ${
+                    isSelected
+                      ? 'bg-[#FFFFFF] text-[#EE4322] font-bold shadow-2xs'
+                      : 'text-[#78736B] hover:text-[#181716]'
+                  }`}
+                  title={`${modelLabels[m].name}: ${modelLabels[m].desc}`}
+                >
+                  <Cpu className="w-3 h-3" />
+                  <span>{modelLabels[m].badge}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Clear / New Conversation Button */}
+          <button
+            type="button"
+            onClick={onClearConversation}
+            className="p-1.5 rounded-lg text-[#78736B] hover:text-[#EE4322] hover:bg-[#FDF1EE] transition-colors border border-transparent hover:border-[#EE4322]/20"
+            title="Start new conversation thread"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
       {/* Main Conversational Stream */}
-      <div className="flex-1 overflow-y-auto px-6 py-6 lg:py-8 max-w-4xl w-full mx-auto space-y-6">
-        {/* Intro Greeting when 1 message */}
+      <div className="flex-1 overflow-y-auto px-6 py-6 max-w-4xl w-full mx-auto space-y-5">
+        {/* Intro Greeting when empty thread */}
         {messages.length <= 1 && (
           <div className="text-center py-4 space-y-3">
             <div className="inline-flex items-center justify-center w-11 h-11 rounded-2xl bg-[#FFFFFF] border border-[#E5E0D5] shadow-2xs mb-1">
               <Sparkles className="w-5 h-5 text-[#EE4322]" />
             </div>
             <h1 className="text-2xl lg:text-3xl font-bold text-[#181716] tracking-tight">
-              Customer Feedback & Anomaly Co-Pilot
+              Tether VoC Multi-Turn Co-Pilot
             </h1>
             <p className="text-xs sm:text-sm text-[#78736B] max-w-lg mx-auto leading-relaxed">
-              Ask natural language queries across dark store logs, isolate thermal spoilage in cold chains, or attach custom CSV reviews to audit CSAT hemorrhage.
+              Multi-turn conversational intelligence powered by Gemini. Active role:{' '}
+              <strong className="text-[#181716]">{roleLabels[selectedRole].title}</strong>. Model:{' '}
+              <strong className="text-[#EE4322] font-mono">{selectedModel}</strong>.
             </p>
 
             {/* Quick Actions Strip */}
@@ -313,7 +430,7 @@ export const IngressChat: React.FC<IngressChatProps> = ({
               className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
             >
               {msg.sender === 'user' ? (
-                /* User Prompt Bubble */
+                /* User Message Bubble */
                 <div className="max-w-xl bg-[#181716] text-[#FCF9F2] rounded-2xl rounded-tr-xs px-4 py-3 text-xs sm:text-sm shadow-2xs">
                   {msg.attachedFile && (
                     <div className="flex items-center gap-2 mb-2 pb-2 border-b border-[#33312E] text-xs font-mono text-[#E5E0D5]">
@@ -330,16 +447,21 @@ export const IngressChat: React.FC<IngressChatProps> = ({
               ) : (
                 /* AI Co-Pilot Response Bubble */
                 <div className="max-w-2xl bg-[#FFFFFF] border border-[#E5E0D5] rounded-2xl rounded-tl-xs p-5 shadow-2xs text-xs sm:text-sm text-[#181716] space-y-3">
-                  <div className="flex items-center justify-between pb-2 border-b border-[#E5E0D5]/70">
+                  <div className="flex items-center justify-between pb-2 border-b border-[#E5E0D5]/70 flex-wrap gap-2">
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-[#EE4322]" />
                       <span className="font-bold text-xs tracking-tight text-[#181716]">
                         Tether VoC Intelligence Brief
                       </span>
+                      {msg.modelUsed && (
+                        <span className="text-[10px] font-mono bg-[#F6F3EC] text-[#78736B] px-1.5 py-0.5 rounded border border-[#E5E0D5]">
+                          {msg.modelUsed}
+                        </span>
+                      )}
                     </div>
                     <span className="text-[10px] font-mono text-[#4A5D4E] bg-[#4A5D4E]/10 px-2 py-0.5 rounded flex items-center gap-1 font-medium">
                       <ShieldCheck className="w-3 h-3" />
-                      Zero Hallucination
+                      100% Attributed
                     </span>
                   </div>
 
@@ -347,7 +469,7 @@ export const IngressChat: React.FC<IngressChatProps> = ({
                     {msg.content}
                   </div>
 
-                  {/* Google Search Grounding Section (gemini-3.5-flash with googleSearch) */}
+                  {/* Google Search Grounding Section */}
                   {((msg.searchQueries && msg.searchQueries.length > 0) ||
                     (msg.groundingSources && msg.groundingSources.length > 0)) && (
                     <div className="mt-3 pt-3 border-t border-[#E5E0D5]/70 space-y-2 bg-[#F6F3EC]/50 p-3 rounded-xl border border-[#E5E0D5]">
@@ -407,6 +529,17 @@ export const IngressChat: React.FC<IngressChatProps> = ({
               )}
             </div>
           ))}
+
+          {/* AI Thinking Indicator */}
+          {isAiResponding && (
+            <div className="flex items-center gap-2.5 p-3.5 bg-[#FFFFFF] border border-[#E5E0D5] rounded-2xl text-xs text-[#78736B] max-w-sm shadow-2xs">
+              <Loader2 className="w-4 h-4 animate-spin text-[#EE4322]" />
+              <span>
+                Gemini ({selectedModel}) analyzing conversation context...
+              </span>
+            </div>
+          )}
+
           <div ref={messagesEndRef} />
         </div>
       </div>
@@ -548,7 +681,7 @@ export const IngressChat: React.FC<IngressChatProps> = ({
                 placeholder={
                   isRecording
                     ? 'Listening to microphone input...'
-                    : "Ask Tether VoC (e.g. 'Audit cold chain spoilage', or use voice mic)..."
+                    : `Ask ${roleLabels[selectedRole].title} (${selectedModel})...`
                 }
                 className="flex-1 bg-transparent border-0 focus:outline-hidden text-xs sm:text-sm text-[#181716] placeholder:text-[#938E85] px-2 py-1 font-sans"
               />
@@ -556,15 +689,15 @@ export const IngressChat: React.FC<IngressChatProps> = ({
               {/* Run Triage CTA */}
               <button
                 type="submit"
-                disabled={!inputText.trim() && !attachedFile}
+                disabled={(!inputText.trim() && !attachedFile) || isAiResponding}
                 className={`px-3.5 py-2 rounded-xl flex items-center gap-1.5 text-xs font-semibold transition-all shrink-0 ${
-                  inputText.trim() || attachedFile
+                  (inputText.trim() || attachedFile) && !isAiResponding
                     ? 'bg-[#EE4322] text-[#FFFFFF] hover:bg-[#d83819] shadow-2xs'
                     : 'bg-[#E5E0D5]/60 text-[#938E85] cursor-not-allowed'
                 }`}
-                title="Execute query triage"
+                title="Send query turn"
               >
-                <span>Run Triage</span>
+                <span>Send</span>
                 <Send className="w-3.5 h-3.5" />
               </button>
             </div>
