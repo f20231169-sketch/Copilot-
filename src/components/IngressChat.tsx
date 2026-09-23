@@ -15,40 +15,25 @@ import {
   Sparkles,
   Database,
   ShieldCheck,
-  CheckCircle2,
   Send,
   Globe,
   ExternalLink,
-  Cpu,
-  UserCheck,
-  RotateCcw,
-  Zap,
-  Layers,
 } from 'lucide-react';
-import { ChatMessage, GeminiModelId, GeminiRole } from '../types';
+import { ChatMessage } from '../types';
 import { parseCSVData } from '../utils/csvParser';
 
 interface IngressChatProps {
   messages: ChatMessage[];
   onSendMessage: (
     text: string,
-    attachedFile?: { name: string; content: string; rowCount: number },
-    model?: GeminiModelId,
-    role?: GeminiRole
+    attachedFile?: { name: string; content: string; rowCount: number }
   ) => void;
   onSelectPrompt: (promptText: string) => void;
   onGenerateDashboard: () => void;
   onLoadSampleDataset: () => void;
   onAttachFileParsed: (fileName: string, content: string) => void;
-  onClearConversation: () => void;
   currentDatasetName: string;
   totalLogsCount: number;
-  selectedModel: GeminiModelId;
-  onChangeModel: (model: GeminiModelId) => void;
-  selectedRole: GeminiRole;
-  onChangeRole: (role: GeminiRole) => void;
-  isAiResponding: boolean;
-  isAuthenticated: boolean;
 }
 
 export const IngressChat: React.FC<IngressChatProps> = ({
@@ -58,18 +43,15 @@ export const IngressChat: React.FC<IngressChatProps> = ({
   onGenerateDashboard,
   onLoadSampleDataset,
   onAttachFileParsed,
-  onClearConversation,
   currentDatasetName,
   totalLogsCount,
-  selectedModel,
-  onChangeModel,
-  selectedRole,
-  onChangeRole,
-  isAiResponding,
-  isAuthenticated,
 }) => {
   const [inputText, setInputText] = useState('');
-  const [attachedFile, setAttachedFile] = useState<{ name: string; content: string; rowCount: number } | null>(null);
+  const [attachedFile, setAttachedFile] = useState<{
+    name: string;
+    content: string;
+    rowCount: number;
+  } | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -89,46 +71,10 @@ export const IngressChat: React.FC<IngressChatProps> = ({
     'Benchmark our 15-minute quick commerce delivery SLAs against industry standards.',
   ];
 
-  const roleLabels: Record<GeminiRole, { title: string; subtitle: string; icon: string }> = {
-    operations_lead: {
-      title: 'Operations Lead',
-      subtitle: 'Cold chain, dark store staging, dwell time, pick/pack defects',
-      icon: '🏬',
-    },
-    product_manager: {
-      title: 'Product Manager',
-      subtitle: 'Checkout UX, 504 timeouts, support bot refund disputes, LTV',
-      icon: '📱',
-    },
-    executive_vp: {
-      title: 'Executive VP / COO',
-      subtitle: 'High-level financial summaries, revenue bleed, store benchmarking',
-      icon: '📊',
-    },
-  };
-
-  const modelLabels: Record<GeminiModelId, { name: string; badge: string; desc: string }> = {
-    'gemini-3.1-pro-preview': {
-      name: 'gemini-3.1-pro-preview',
-      badge: 'Complex Tasks',
-      desc: 'Deep multi-store root cause & systemic correlation',
-    },
-    'gemini-3.5-flash': {
-      name: 'gemini-3.5-flash',
-      badge: 'General Tasks',
-      desc: 'Balanced triage & live Google Search grounding',
-    },
-    'gemini-3.1-flash-lite': {
-      name: 'gemini-3.1-flash-lite',
-      badge: 'Fast Tasks',
-      desc: 'Rapid categorization & sub-second answering',
-    },
-  };
-
   // Auto-scroll chat to latest message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isAiResponding]);
+  }, [messages]);
 
   // Clean up recording timer on unmount
   useEffect(() => {
@@ -314,76 +260,12 @@ export const IngressChat: React.FC<IngressChatProps> = ({
 
     const textToSend =
       inputText.trim() || 'Analyze attached customer dataset for critical dark store friction points.';
-    onSendMessage(textToSend, attachedFile || undefined, selectedModel, selectedRole);
+    onSendMessage(textToSend, attachedFile || undefined);
     setInputText('');
   };
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#FCF9F2] overflow-hidden font-sans">
-      {/* Top Multi-Turn Chat Controls Bar: Role Persona + Model Selection */}
-      <div className="border-b border-[#E5E0D5] bg-[#FFFFFF] px-6 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs shadow-2xs z-10">
-        {/* Role Persona Switcher */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-[#938E85] mr-1">
-            System Persona:
-          </span>
-          {(['operations_lead', 'product_manager', 'executive_vp'] as GeminiRole[]).map((r) => {
-            const isSelected = selectedRole === r;
-            return (
-              <button
-                key={r}
-                type="button"
-                onClick={() => onChangeRole(r)}
-                className={`px-2.5 py-1 rounded-lg font-medium transition-all text-xs flex items-center gap-1.5 ${
-                  isSelected
-                    ? 'bg-[#181716] text-[#FCF9F2] shadow-2xs font-semibold'
-                    : 'bg-[#F6F3EC] text-[#78736B] hover:text-[#181716] hover:bg-[#E5E0D5]/60'
-                }`}
-                title={roleLabels[r].subtitle}
-              >
-                <span>{roleLabels[r].icon}</span>
-                <span>{roleLabels[r].title}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Model Selector Pill (gemini-3.1-pro-preview, gemini-3.5-flash, gemini-3.1-flash-lite) */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-1 bg-[#F6F3EC] p-1 rounded-xl border border-[#E5E0D5]">
-            {(['gemini-3.1-pro-preview', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'] as GeminiModelId[]).map((m) => {
-              const isSelected = selectedModel === m;
-              return (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => onChangeModel(m)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-mono transition-all flex items-center gap-1 ${
-                    isSelected
-                      ? 'bg-[#FFFFFF] text-[#EE4322] font-bold shadow-2xs'
-                      : 'text-[#78736B] hover:text-[#181716]'
-                  }`}
-                  title={`${modelLabels[m].name}: ${modelLabels[m].desc}`}
-                >
-                  <Cpu className="w-3 h-3" />
-                  <span>{modelLabels[m].badge}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Clear / New Conversation Button */}
-          <button
-            type="button"
-            onClick={onClearConversation}
-            className="p-1.5 rounded-lg text-[#78736B] hover:text-[#EE4322] hover:bg-[#FDF1EE] transition-colors border border-transparent hover:border-[#EE4322]/20"
-            title="Start new conversation thread"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-
       {/* Main Conversational Stream */}
       <div className="flex-1 overflow-y-auto px-6 py-6 max-w-4xl w-full mx-auto space-y-5">
         {/* Intro Greeting when empty thread */}
@@ -393,12 +275,12 @@ export const IngressChat: React.FC<IngressChatProps> = ({
               <Sparkles className="w-5 h-5 text-[#EE4322]" />
             </div>
             <h1 className="text-2xl lg:text-3xl font-bold text-[#181716] tracking-tight">
-              Tether VoC Multi-Turn Co-Pilot
+              Tether VoC Intelligence Co-Pilot
             </h1>
             <p className="text-xs sm:text-sm text-[#78736B] max-w-lg mx-auto leading-relaxed">
-              Multi-turn conversational intelligence powered by Gemini. Active role:{' '}
-              <strong className="text-[#181716]">{roleLabels[selectedRole].title}</strong>. Model:{' '}
-              <strong className="text-[#EE4322] font-mono">{selectedModel}</strong>.
+              Real-time unstructured customer feedback triage powered by Gemini. Grounded in{' '}
+              <strong className="text-[#181716] font-mono">{totalLogsCount} customer voices</strong> from{' '}
+              <strong className="text-[#181716]">{currentDatasetName}</strong>.
             </p>
 
             {/* Quick Actions Strip */}
@@ -453,11 +335,6 @@ export const IngressChat: React.FC<IngressChatProps> = ({
                       <span className="font-bold text-xs tracking-tight text-[#181716]">
                         Tether VoC Intelligence Brief
                       </span>
-                      {msg.modelUsed && (
-                        <span className="text-[10px] font-mono bg-[#F6F3EC] text-[#78736B] px-1.5 py-0.5 rounded border border-[#E5E0D5]">
-                          {msg.modelUsed}
-                        </span>
-                      )}
                     </div>
                     <span className="text-[10px] font-mono text-[#4A5D4E] bg-[#4A5D4E]/10 px-2 py-0.5 rounded flex items-center gap-1 font-medium">
                       <ShieldCheck className="w-3 h-3" />
@@ -529,16 +406,6 @@ export const IngressChat: React.FC<IngressChatProps> = ({
               )}
             </div>
           ))}
-
-          {/* AI Thinking Indicator */}
-          {isAiResponding && (
-            <div className="flex items-center gap-2.5 p-3.5 bg-[#FFFFFF] border border-[#E5E0D5] rounded-2xl text-xs text-[#78736B] max-w-sm shadow-2xs">
-              <Loader2 className="w-4 h-4 animate-spin text-[#EE4322]" />
-              <span>
-                Gemini ({selectedModel}) analyzing conversation context...
-              </span>
-            </div>
-          )}
 
           <div ref={messagesEndRef} />
         </div>
@@ -681,7 +548,7 @@ export const IngressChat: React.FC<IngressChatProps> = ({
                 placeholder={
                   isRecording
                     ? 'Listening to microphone input...'
-                    : `Ask ${roleLabels[selectedRole].title} (${selectedModel})...`
+                    : 'Ask questions about customer friction, search dark stores, or upload CSV...'
                 }
                 className="flex-1 bg-transparent border-0 focus:outline-hidden text-xs sm:text-sm text-[#181716] placeholder:text-[#938E85] px-2 py-1 font-sans"
               />
@@ -689,15 +556,15 @@ export const IngressChat: React.FC<IngressChatProps> = ({
               {/* Run Triage CTA */}
               <button
                 type="submit"
-                disabled={(!inputText.trim() && !attachedFile) || isAiResponding}
+                disabled={!inputText.trim() && !attachedFile}
                 className={`px-3.5 py-2 rounded-xl flex items-center gap-1.5 text-xs font-semibold transition-all shrink-0 ${
-                  (inputText.trim() || attachedFile) && !isAiResponding
+                  inputText.trim() || attachedFile
                     ? 'bg-[#EE4322] text-[#FFFFFF] hover:bg-[#d83819] shadow-2xs'
                     : 'bg-[#E5E0D5]/60 text-[#938E85] cursor-not-allowed'
                 }`}
                 title="Send query turn"
               >
-                <span>Send</span>
+                <span>Run Triage</span>
                 <Send className="w-3.5 h-3.5" />
               </button>
             </div>

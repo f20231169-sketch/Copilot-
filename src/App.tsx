@@ -11,8 +11,6 @@ import {
   ChatMessage,
   RealtimeAnomalyAlert,
   UserProfile,
-  GeminiModelId,
-  GeminiRole,
 } from './types';
 import { QUICK_COMMERCE_SAMPLE_LOGS } from './data/sampleDataset';
 import { parseCSVData } from './utils/csvParser';
@@ -25,16 +23,6 @@ import {
   setActiveUserId,
   saveAnalysisHistoryItem,
 } from './utils/authStorage';
-import {
-  signInWithGoogle,
-  signOutUser,
-  onAuthStatusChanged,
-  validateFirestoreConnection,
-  createOrUpdateConversation,
-  addChatMessageToFirestore,
-  StoredSavedAudit,
-} from './services/firebase';
-import { User } from 'firebase/auth';
 import { Sidebar } from './components/Sidebar';
 import { HeaderTelemetry } from './components/HeaderTelemetry';
 import { IngressChat } from './components/IngressChat';
@@ -45,7 +33,6 @@ import { DeduplicationView } from './components/DeduplicationView';
 import { BugDefectView } from './components/BugDefectView';
 import { AuditDossierView } from './components/AuditDossierView';
 import { UserProfileView } from './components/UserProfileView';
-import { CloudAuditsModal } from './components/CloudAuditsModal';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<ViewTab>('ingress');
@@ -55,20 +42,9 @@ export default function App() {
   const [selectedClusterForCitation, setSelectedClusterForCitation] = useState<ThemeCluster | null>(null);
   const [isCitationDrawerOpen, setIsCitationDrawerOpen] = useState<boolean>(false);
 
-  // Firebase Auth State
-  const [authUser, setAuthUser] = useState<User | null>(null);
-  const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
-  const [isCloudAuditsOpen, setIsCloudAuditsOpen] = useState<boolean>(false);
-
-  // User Local Storage Profile state
+  // User Auth & Profiles (Role-based profiles)
   const [profiles, setProfiles] = useState<UserProfile[]>(() => loadUserProfiles());
   const [currentUserId, setCurrentUserIdState] = useState<string>(() => getActiveUserId());
-
-  // Multi-Turn Chat & Gemini Configuration
-  const [selectedModel, setSelectedModel] = useState<GeminiModelId>('gemini-3.5-flash');
-  const [selectedRole, setSelectedRole] = useState<GeminiRole>('operations_lead');
-  const [isAiResponding, setIsAiResponding] = useState<boolean>(false);
-  const [conversationId, setConversationId] = useState<string>(() => `conv-${Date.now()}`);
 
   const currentUser = useMemo(() => {
     return profiles.find((p) => p.id === currentUserId) || profiles[0];
@@ -85,21 +61,10 @@ export default function App() {
       id: 'msg-init',
       sender: 'assistant',
       content:
-        'Tether VoC Multi-Turn Engine online. 30 high-fidelity dark store feedback voices loaded into memory. Real-time feedback ingestion pipeline active. You can ask targeted systemic questions across previous conversation turns, attach feedback CSVs, or switch system persona roles.',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      modelUsed: 'gemini-3.5-flash',
-      roleUsed: 'operations_lead',
+        'Tether VoC Anomaly Engine online. 30 high-fidelity dark store feedback voices loaded into memory. Real-time feedback ingestion pipeline active. You can ask targeted systemic questions, paste/upload your customer feedback CSV, or execute one of the quick triage prompt pills below.',
+      timestamp: '21:30',
     },
   ]);
-
-  // Initialize Firebase Auth listener and validate connection
-  useEffect(() => {
-    validateFirestoreConnection();
-    const unsubscribe = onAuthStatusChanged((user) => {
-      setAuthUser(user);
-    });
-    return () => unsubscribe();
-  }, []);
 
   // Real-time continuous stream ingestion effect
   useEffect(() => {
@@ -159,33 +124,10 @@ export default function App() {
       : '1,420 msgs/hr'
     : '0 msgs/hr (PAUSED)';
 
-  // Handle Google Sign-in with Firebase Auth
-  const handleSignInGoogle = async () => {
-    setIsSigningIn(true);
-    try {
-      await signInWithGoogle();
-    } catch (err: any) {
-      console.error('Google Sign-In failed:', err);
-    } finally {
-      setIsSigningIn(false);
-    }
-  };
-
-  // Handle Sign out
-  const handleSignOut = async () => {
-    try {
-      await signOutUser();
-    } catch (err: any) {
-      console.error('Sign out failed:', err);
-    }
-  };
-
-  // Handle Multi-Turn Chat Messaging using Gemini
-  const handleSendMessage = async (
+  // Send Query Turn to Ingress Chat with Search Grounding
+  const handleSendMessage = (
     text: string,
-    attached?: { name: string; content: string; rowCount: number },
-    targetModel: GeminiModelId = selectedModel,
-    targetRole: GeminiRole = selectedRole
+    attached?: { name: string; content: string; rowCount: number }
   ) => {
     let workingLogs = logs;
 
@@ -198,13 +140,11 @@ export default function App() {
       setActiveAnomalyAlert(null);
     }
 
-    const userMsgId = `user-${Date.now()}`;
-    const userTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const userMsg: ChatMessage = {
-      id: userMsgId,
+      id: `user-${Date.now()}`,
       sender: 'user',
       content: text,
-      timestamp: userTimestamp,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       attachedFile: attached ? { name: attached.name, rowCount: attached.rowCount } : undefined,
     };
 
@@ -213,11 +153,12 @@ export default function App() {
     const filterResult = filterLogsByQuery(workingLogs, text);
     const generatedClusters = generateThemeClusters(filterResult.matchedLogs, text);
 
+    // Formulate AI briefing reply
     const topCluster = generatedClusters[0];
     const topStore = topCluster ? topCluster.topStore : (workingLogs[0]?.storeId || 'Primary Facility');
     const totalMatched = filterResult.matchedLogs.length;
 
-    // Save this analysis run to local user profile history
+    // Save this analysis run to user profile history
     saveAnalysisHistoryItem(currentUser.id, {
       query: text,
       matchedCount: totalMatched,
@@ -226,54 +167,24 @@ export default function App() {
     });
     setProfiles(loadUserProfiles());
 
-    // Prepare initial response placeholder
-    let initialSummary = `Identified ${totalMatched} verified customer logs correlating to your inquiry.`;
+    let responseContent = `Audit Complete. Identified ${totalMatched} verified customer logs correlating to your inquiry.`;
     if (topCluster) {
-      initialSummary += ` Primary hotspot: "${topCluster.title}" at ${topStore}. Groundedness: ${filterResult.groundednessScore}%.`;
+      responseContent += `\n\n• Primary Systemic Hotspot: "${topCluster.title}"\n• Impact: ${topCluster.insight}\n• Concentrated Facility: ${topStore}\n• Groundedness Attributed: ${filterResult.groundednessScore}% LLM Grounded with zero synthetic hallucination.`;
     }
 
     const aiMsgId = `ai-${Date.now()}`;
     const aiMsg: ChatMessage = {
       id: aiMsgId,
       sender: 'assistant',
-      content: initialSummary,
+      content: responseContent,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       matchedLogsCount: totalMatched,
       highlightThemeIds: generatedClusters.map((c) => c.id),
-      modelUsed: targetModel,
-      roleUsed: targetRole,
     };
 
-    // Maintain conversation history
-    const nextMessages = [...messages, userMsg, aiMsg];
-    setMessages(nextMessages);
-    setIsAiResponding(true);
+    setMessages((prev) => [...prev, userMsg, aiMsg]);
 
-    // Save to Firestore if user is authenticated
-    if (authUser?.uid) {
-      try {
-        await createOrUpdateConversation(authUser.uid, {
-          id: conversationId,
-          title: text.slice(0, 60),
-          model: targetModel,
-          role: targetRole,
-          messageCount: nextMessages.length,
-        });
-
-        await addChatMessageToFirestore(authUser.uid, conversationId, {
-          id: userMsgId,
-          sender: 'user',
-          content: text,
-          modelUsed: targetModel,
-          roleUsed: targetRole,
-          timestamp: userTimestamp,
-        });
-      } catch (e) {
-        console.warn('Firestore conversation sync note:', e);
-      }
-    }
-
-    // Build multi-turn context summary from current logs
+    // Query server-side Gemini 3.5 Flash with Google Search grounding
     const sampleQuotes = filterResult.matchedLogs
       .slice(0, 4)
       .map((l) => `"${l.text}" (Rating: ${l.rating}★, Store: ${l.storeId}, Category: ${l.category})`)
@@ -281,80 +192,40 @@ export default function App() {
 
     const logsSummary = `Total voices: ${workingLogs.length}, Matched voices: ${totalMatched}, CSAT average: ${csatAverage.toFixed(
       1
-    )}★, Top cluster: "${topCluster?.title || 'General'}", Primary Facility: ${topStore}.\nSample logs:\n${sampleQuotes}`;
+    )}★, Top cluster: "${topCluster?.title || 'General'}", Primary Store: ${topStore}.\nSample logs:\n${sampleQuotes}`;
 
-    // Previous turns history (excluding the pending ai response)
-    const historyPayload = messages.map((m) => ({
-      role: m.sender === 'assistant' ? 'assistant' : 'user',
-      text: m.content,
-    }));
-
-    try {
-      const res = await fetch('/api/gemini/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: text,
-          history: historyPayload,
-          model: targetModel,
-          role: targetRole,
-          contextData: logsSummary,
-          useSearch: targetModel === 'gemini-3.5-flash',
-        }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        const updatedAiMsg: ChatMessage = {
-          ...aiMsg,
-          content: data.reply || initialSummary,
-          modelUsed: data.modelUsed || targetModel,
-          roleUsed: data.roleUsed || targetRole,
-          groundingSources: data.sources,
-          searchQueries: data.searchQueries,
-        };
-
-        setMessages((prev) =>
-          prev.map((msg) => (msg.id === aiMsgId ? updatedAiMsg : msg))
-        );
-
-        // Sync final AI response to Firestore
-        if (authUser?.uid) {
-          try {
-            await addChatMessageToFirestore(authUser.uid, conversationId, {
-              id: aiMsgId,
-              sender: 'assistant',
-              content: data.reply || initialSummary,
-              modelUsed: data.modelUsed || targetModel,
-              roleUsed: data.roleUsed || targetRole,
-              timestamp: aiMsg.timestamp,
-            });
-          } catch (e) {
-            console.warn('Firestore message sync note:', e);
-          }
+    fetch('/api/gemini/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: text,
+        logsSummary,
+        useSearch: true,
+      }),
+    })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return res.json();
+      })
+      .then((data) => {
+        if (data && data.reply) {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === aiMsgId
+                ? {
+                    ...msg,
+                    content: data.reply,
+                    groundingSources: data.sources,
+                    searchQueries: data.searchQueries,
+                  }
+                : msg
+            )
+          );
         }
-      }
-    } catch (err: any) {
-      console.warn('Multi-turn chat query note:', err?.message);
-    } finally {
-      setIsAiResponding(false);
-    }
-  };
-
-  // Start new conversation thread
-  const handleClearConversation = () => {
-    const newConvId = `conv-${Date.now()}`;
-    setConversationId(newConvId);
-    setMessages([
-      {
-        id: `msg-reset-${Date.now()}`,
-        sender: 'assistant',
-        content: `New multi-turn session initialized with ${selectedRole.replace('_', ' ').toUpperCase()} co-pilot using ${selectedModel}. Conversation history reset.`,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        modelUsed: selectedModel,
-        roleUsed: selectedRole,
-      },
-    ]);
+      })
+      .catch((err) => {
+        console.warn('Gemini search grounding query note:', err?.message);
+      });
   };
 
   // Handle one-click prompt selection
@@ -377,8 +248,6 @@ export default function App() {
         content:
           'Loaded standard Quick Commerce Dark Store dataset with 30 production incident logs across South Bay #14, Downtown North #08, East River #22, and West End #03.',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        modelUsed: selectedModel,
-        roleUsed: selectedRole,
       },
     ]);
   };
@@ -398,11 +267,9 @@ export default function App() {
         sender: 'assistant',
         content: `Ingested ${parsed.totalVoices} customer voices from "${fileName}". Calculated CSAT: ${parsed.csatAverage.toFixed(
           1
-        )}★, Deduplication efficiency: ${parsed.dedupEfficiencyRate}%. Multi-turn context updated.`,
+        )}★, Deduplication efficiency: ${parsed.dedupEfficiencyRate}%. Ready for query triage.`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         matchedLogsCount: parsed.totalVoices,
-        modelUsed: selectedModel,
-        roleUsed: selectedRole,
       },
     ]);
   };
@@ -430,26 +297,6 @@ export default function App() {
     } else {
       setCurrentTab('audit');
     }
-  };
-
-  // Load audit from Firestore into active view
-  const handleLoadAuditFromCloud = (audit: StoredSavedAudit) => {
-    setDatasetName(audit.datasetName);
-    setActiveQuery('');
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `cloud-${Date.now()}`,
-        sender: 'assistant',
-        content: `Loaded Firestore Saved Audit: "${audit.title}". Logged ${audit.voicesCount} voices with ${audit.csatAverage.toFixed(
-          1
-        )}★ CSAT. Top facility: ${audit.topStore}. Notes: ${audit.notes || 'None recorded'}.`,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        modelUsed: selectedModel,
-        roleUsed: selectedRole,
-      },
-    ]);
-    setCurrentTab('dashboard');
   };
 
   // Profile Management handlers
@@ -499,11 +346,6 @@ export default function App() {
           activeAnomalyAlert={activeAnomalyAlert}
           onDismissAnomaly={() => setActiveAnomalyAlert(null)}
           onSelectAnomalyTicket={handleSelectAnomalyTicket}
-          authUser={authUser}
-          onSignInGoogle={handleSignInGoogle}
-          onSignOut={handleSignOut}
-          isSigningIn={isSigningIn}
-          onOpenCloudAudits={() => setIsCloudAuditsOpen(true)}
         />
 
         {/* 3. PRIMARY VIEW CONTAINER */}
@@ -516,15 +358,8 @@ export default function App() {
               onGenerateDashboard={() => setCurrentTab('dashboard')}
               onLoadSampleDataset={handleLoadSampleDataset}
               onAttachFileParsed={handleAttachFileParsed}
-              onClearConversation={handleClearConversation}
               currentDatasetName={datasetName}
               totalLogsCount={totalVoices}
-              selectedModel={selectedModel}
-              onChangeModel={(m) => setSelectedModel(m)}
-              selectedRole={selectedRole}
-              onChangeRole={(r) => setSelectedRole(r)}
-              isAiResponding={isAiResponding}
-              isAuthenticated={!!authUser}
             />
           )}
 
@@ -579,19 +414,6 @@ export default function App() {
         onClose={() => setIsCitationDrawerOpen(false)}
         cluster={selectedClusterForCitation}
         allLogs={logs}
-      />
-
-      {/* 5. FIRESTORE CLOUD AUDITS MODAL */}
-      <CloudAuditsModal
-        isOpen={isCloudAuditsOpen}
-        onClose={() => setIsCloudAuditsOpen(false)}
-        userId={authUser?.uid || null}
-        datasetName={datasetName}
-        totalVoices={totalVoices}
-        csatAverage={csatAverage}
-        topClusterTitle={clusters[0]?.title || 'General'}
-        topStore={clusters[0]?.topStore || 'All Facilities'}
-        onLoadAudit={handleLoadAuditFromCloud}
       />
     </div>
   );
