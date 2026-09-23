@@ -1,0 +1,6 @@
+{
+  "name": "Tether VoC — Quick Commerce AI Feedback Co-Pilot",
+  "description": "AI Customer Feedback Co-Pilot for Quick Commerce: real-time voice-of-customer analytics, thermal spoilage, dark store SLAs, and traceable evidence dossiers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
